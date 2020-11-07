@@ -1,0 +1,226 @@
+---
+title: "Project Course Practical Machine Learning"
+author: "Kelvin"
+date: "11/6/2020"
+output: 
+  html_document:
+    keep_md: true
+    self_contained: true
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Background
+=======================	
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+Data
+====
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+
+
+### Loading library package
+
+```{r}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(randomForest)
+library(corrplot)
+library(corrr)
+library(gbm)
+library(knitr)
+ 
+```
+
+
+### Loading dataset
+
+```{r}
+###loading the dataset
+TrainingData<-read.csv("./project_data/pml-training.csv")
+ValidationData<-read.csv("./project_data/pml-testing.csv")
+
+dim(TrainingData)
+dim(ValidationData)
+ 
+```
+
+Preprocessing and Data Preparation
+================================
+
+### Cleaning Data
+
+Remove missing value data for training data and validation data
+```{r}
+TrainData<-TrainingData[,colSums(is.na(TrainingData))==0]
+ValidData<-ValidationData[,colSums(is.na(ValidationData))==0]
+dim(TrainData)
+dim(ValidData)
+
+TrainData<-TrainData[,-c(1:7)]
+ValidData<-ValidData[,-c(1:7)]
+dim(TrainData)
+dim(ValidData)
+ 
+```
+
+### Data Preparation for Prediction
+
+*Split TrainData into TrainSet and TestSet*
+
+Preparing the data for prediction by splitting the training data into 70% as train data and 30% as test data.  
+
+The test data downloaded from the source will be used to validate the final prediction model
+ 
+```{r}
+set.seed(1234)
+inTrain <- createDataPartition(TrainData$classe, p=0.7,list = FALSE)
+
+TrainSet<-TrainData[inTrain,]
+TestSet<-TrainData[-inTrain,]
+dim(TrainSet)
+dim(TestSet)
+
+```
+
+*Remove variables with near zero variance*
+
+```{r}
+NZV<-nearZeroVar(TrainData)
+TrainSet<-TrainSet[,-NZV]
+TestSet<-TestSet[,-NZV]
+dim(TrainSet)
+dim(TestSet)
+```
+
+After this cleaning, they are a total of 53 variables can be used to buid the prediction model
+
+
+### Building Prediction Model
+
+For this project,3 of the following algorithms will be used to build the prediction model and final model will be selected based on the level of accuracy.
+
+ 1) Random forecast
+ 2) Decision Tree
+ 3) Generalized Boosted Model(GBM)
+
+### A. Random Forest
+```{r}
+#Model Fit
+set.seed(1234)
+controlRF<-trainControl(method="cv",number=3, verboseIter=FALSE)
+modFitRF<-train(classe~., data=TrainSet,method="rf",trControl=controlRF)
+modFitRF$finalModel
+```
+
+Test the model modFitRF on Testset dataset to check on Accuracy of the prediction 
+
+
+```{r}
+# Prediction on Test dataset
+predictRF<-predict(modFitRF,newdata=TestSet)
+ConfMatRF<-confusionMatrix(predictRF,as.factor(TestSet$classe))
+ConfMatRF
+
+```
+
+
+```{r, echo=FALSE}
+#plot matrix result
+plot(ConfMatRF$table,col=ConfMatRF$byclass,main=paste("RandomFrest-Accuracy", round(ConfMatRF$overall["Accuracy"],4)))
+
+```
+The accuracy rate using the random forest is very high: Accuracy level is 0.9934 and therefore the out-of-sample-error is equal to 0.69%.  
+
+### B. Decision Tree
+```{r}
+#model fit
+set.seed(1234)
+modFitDT<-rpart(classe~.,data=TrainSet,method="class")
+fancyRpartPlot(modFitDT)
+```
+
+```{r}
+# Prediction on TestSet dataset
+predictDT<-predict(modFitDT,newdata=TestSet, type="class")
+confMatDT<-confusionMatrix(predictDT,as.factor(TestSet$classe))
+confMatDT
+```
+
+```{r}
+#plot matrix result
+plot(confMatDT$table,col=confMatDT$byclass,main=paste("Decision Tree-Accuracy", round(confMatDT$overall["Accuracy"],4)))
+```
+
+The accuracy rate of the model for decision tree is 0.7541
+
+
+### C. Generalized Boosted Model (GBM)
+```{r}
+#model fit
+set.seed(1234)
+controlGBM<-trainControl(method="repeatedcv",number=5, repeats=1)
+modFitGBM<-train(classe~., data=TrainSet,method="gbm",trControl=controlGBM, verbose=FALSE)
+modFitGBM$finalModel
+```
+
+
+
+
+```{r}
+# Prediction on TestSet dataset
+predictGBM<-predict(modFitGBM,newdata=TestSet)
+confMatGBM<-confusionMatrix(predictGBM,as.factor(TestSet$classe))
+confMatGBM
+```
+
+
+```{r}
+#plot matrix result
+plot(confMatGBM$table,col=confMatGBM$byclass,main=paste("Generalized Boosted Model-Accuracy", round(confMatGBM$overall["Accuracy"],4)))
+```
+
+
+### Applying Selected Model
+===========================
+
+Comparing all 3 prediction models, Random Forests gave highest Accuracy among the three.Hence,the model will be applied on the validation set of data
+
+```{r}
+# Accuracy for all 3 models
+round(ConfMatRF$overall["Accuracy"],4)
+round(confMatDT$overall["Accuracy"],4)
+round(confMatGBM$overall["Accuracy"],4)
+```
+
+### Validation of Final Prediction Model 
+=========================================
+```{r}
+predictvalid<-predict(modFitRF, newdata=ValidData)
+predictvalid
+```
+
+
+
+
+
+
+
+
+
+
